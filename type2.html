@@ -71,6 +71,7 @@
       <li>플레이어는 🧹 이모티콘으로 표시됩니다.</li>
       <li>상대 말 중 2개가 매 턴 기물 규칙에 따라 움직입니다.</li>
       <li>상대 말이 당신을 잡을 수 있으면 잡습니다. (게임 오버)</li>
+      <li>당신도 적 말이 있는 칸으로 이동하면 그 기물을 잡을 수 있습니다.</li>
       <li>폰은 대각선으로만 공격하며, 끝까지 가면 퀸으로 승격합니다.</li>
       <li>전체 맵을 표식으로 덮으면 승리합니다!</li>
     </ul>
@@ -159,6 +160,9 @@ function movePlayer(dx, dy) {
   const newX = player.x + dx;
   const newY = player.y + dy;
   if (newX >= 0 && newX < size && newY >= 0 && newY < size) {
+    // 적 말이 있는 경우 제거
+    enemyPieces = enemyPieces.filter(p => !(p.x === newX && p.y === newY));
+
     player.x = newX;
     player.y = newY;
     visited[newY][newX] = true;
@@ -171,6 +175,24 @@ function movePlayer(dx, dy) {
   }
 }
 
+/*
+function movePlayer(dx, dy) {
+  if (gameOver) return;
+  const newX = player.x + dx;
+  const newY = player.y + dy;
+  if (newX >= 0 && newX < size && newY >= 0 && newY < size) {
+    player.x = newX;
+    player.y = newY;
+    visited[newY][newX] = true;
+    moveCount++;
+    moveCounter.textContent = `움직인 횟수: ${moveCount}`;
+    moveEnemyPieces();
+    checkLose();
+    checkWin();
+    createBoard();
+  }
+}
+*/
 function checkWin() {
   if (visited.flat().every(v => v)) {
     gameOver = true;
@@ -238,6 +260,63 @@ function getValidMoves(piece, forAttack = false) {
     case "knight":
       [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]].forEach(([dx,dy])=> add(piece.x+dx,piece.y+dy));
       break;
+    case "pawn": {
+      const dir = 1;
+      const px = piece.x;
+      const py = piece.y;
+      if (!forAttack) {
+        const ny = py + dir;
+        if (inside(px, ny) && !occ(px, ny)) {
+          moves.push({ x: px, y: ny });
+          // 첫 칸이면 2칸도 허용
+          const startRow = 1;
+          const ny2 = py + 2 * dir;
+          if (py === startRow && inside(px, ny2) && !occ(px, ny2)) {
+            if (!occ(px, ny)) moves.push({ x: px, y: ny2 });
+          }
+        }
+      } else {
+        [[-1,1],[1,1]].forEach(([dx, dy]) => {
+          const nx = px + dx;
+          const ny = py + dy;
+          if (inside(nx, ny)) moves.push({ x: nx, y: ny });
+        });
+      }
+      break;
+    }
+  }
+  return moves;
+}
+
+/*
+function getValidMoves(piece, forAttack = false) {
+  const moves = [];
+  const inside = (x, y) => x >= 0 && x < size && y >= 0 && y < size;
+  const occ = (x, y) => enemyPieces.some(p => p.x === x && p.y === y);
+  const add = (x, y) => { if (inside(x, y) && !occ(x, y)) moves.push({ x, y }); };
+
+  const lin = (dx, dy) => {
+    for (let i = 1; i < 8; i++) {
+      const nx = piece.x + dx * i;
+      const ny = piece.y + dy * i;
+      if (!inside(nx, ny) || occ(nx, ny)) break;
+      moves.push({ x: nx, y: ny });
+    }
+  };
+
+  switch (piece.type) {
+    case "rook": lin(1,0); lin(-1,0); lin(0,1); lin(0,-1); break;
+    case "bishop": lin(1,1); lin(-1,1); lin(1,-1); lin(-1,-1); break;
+    case "queen":
+      lin(1,0); lin(-1,0); lin(0,1); lin(0,-1);
+      lin(1,1); lin(-1,1); lin(1,-1); lin(-1,-1); break;
+    case "king":
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
+        if (dx !== 0 || dy !== 0) add(piece.x + dx, piece.y + dy);
+      break;
+    case "knight":
+      [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]].forEach(([dx,dy])=> add(piece.x+dx,piece.y+dy));
+      break;
     case "pawn":
       const dir = 1;
       const px = piece.x;
@@ -255,7 +334,7 @@ function getValidMoves(piece, forAttack = false) {
       break;
   }
   return moves;
-}
+}*/
 
 document.addEventListener("keydown", e => {
   if (gameOver) return;
