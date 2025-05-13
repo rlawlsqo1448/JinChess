@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>체스 게임 - 생존 모드</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #f0f0f0;
+      font-family: sans-serif;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(8, 60px);
+      grid-template-rows: repeat(8, 60px);
+      margin: 20px 0;
+    }
+    .cell {
+      width: 60px;
+      height: 60px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+    }
+    .dot {
+      font-size: 28px;
+      z-index: 2;
+    }
+    .mark {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(255, 0, 0, 0.3);
+      z-index: 0;
+    }
+    .arrow {
+      position: absolute;
+      font-size: 14px;
+      color: red;
+    }
+    .enemy {
+      font-size: 24px;
+      z-index: 2;
+    }
+    .killer {
+      color: red;
+    }
+    .rules {
+      width: 480px;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+    .result { font-size: 24px; margin-top: 10px; }
+    #moveCounter { font-size: 18px; margin-top: 10px; }
+    #retryBtn { padding: 6px 12px; font-size: 16px; margin-top: 10px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="board" id="board"></div>
+  <div id="moveCounter">움직인 횟수: 0</div>
+  <div class="rules">
+    <h3>■ 게임 규칙</h3>
+    <ul>
+      <li>당신의 말을 방향키로 움직이세요.</li>
+      <li>움직인 칸은 빨간 배경으로 표시됩니다.</li>
+      <li>플레이어는 🧹 이모티콘으로 표시됩니다.</li>
+      <li>상대 말 중 2개가 매 턴 기물 규칙에 따라 움직입니다.</li>
+      <li>상대 말이 당신을 잡을 수 있으면 잡습니다. (게임 오버)</li>
+      <li>폰은 대각선으로만 공격하며, 끝까지 가면 퀸으로 승격합니다.</li>
+      <li>전체 맵을 표식으로 덮으면 승리합니다!</li>
+    </ul>
+  </div>
+  <div id="result" class="result"></div>
+  <button id="retryBtn" onclick="restartGame()">재도전</button>
+
+<script>
+const board = document.getElementById("board");
+const resultText = document.getElementById("result");
+const moveCounter = document.getElementById("moveCounter");
+const retryBtn = document.getElementById("retryBtn");
+const size = 8;
+let player = {};
+let visited;
+let gameOver = false;
+let moveCount = 0;
+let killerInfo = null;
+
+const symbols = {
+  rook: "♜", bishop: "♝", knight: "♞", queen: "♛", king: "♚", pawn: "♟"
+};
+
+const enemyPiecesTemplate = [
+  { type: "rook", x: 0, y: 0 }, { type: "rook", x: 7, y: 0 },
+  { type: "knight", x: 1, y: 0 }, { type: "knight", x: 6, y: 0 },
+  { type: "bishop", x: 2, y: 0 }, { type: "bishop", x: 5, y: 0 },
+  { type: "queen", x: 3, y: 0 }, { type: "king", x: 4, y: 0 },
+  ...Array.from({ length: 8 }, (_, i) => ({ type: "pawn", x: i, y: 1 }))
+];
+let enemyPieces;
+
+function randomStart() {
+  const options = [];
+  for (let x = 0; x < size; x++) options.push([x, size - 1]);
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function createBoard() {
+  board.innerHTML = "";
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.style.backgroundColor = (x + y) % 2 === 0 ? "#f0d9b5" : "#b58863";
+
+      if (visited[y][x]) {
+        const mark = document.createElement("div");
+        mark.className = "mark";
+        cell.appendChild(mark);
+      }
+
+      if (player.x === x && player.y === y) {
+        const dot = document.createElement("div");
+        dot.className = "dot";
+        dot.textContent = "🧹";
+        cell.appendChild(dot);
+      }
+
+      enemyPieces.forEach(p => {
+        if (p.x === x && p.y === y) {
+          const e = document.createElement("div");
+          e.className = "enemy";
+          if (killerInfo && killerInfo.from.x === x && killerInfo.from.y === y) {
+            e.classList.add("killer");
+          }
+          e.textContent = symbols[p.type];
+          cell.appendChild(e);
+        }
+      });
+
+      if (killerInfo && killerInfo.to.x === x && killerInfo.to.y === y) {
+        const arrow = document.createElement("div");
+        arrow.className = "arrow";
+        arrow.textContent = "↑";
+        cell.appendChild(arrow);
+      }
+
+      board.appendChild(cell);
+    }
+  }
+}
+
+function movePlayer(dx, dy) {
+  if (gameOver) return;
+  const newX = player.x + dx;
+  const newY = player.y + dy;
+  if (newX >= 0 && newX < size && newY >= 0 && newY < size) {
+    player.x = newX;
+    player.y = newY;
+    visited[newY][newX] = true;
+    moveCount++;
+    moveCounter.textContent = `움직인 횟수: ${moveCount}`;
+    moveEnemyPieces();
+    checkLose();
+    checkWin();
+    createBoard();
+  }
+}
+
+function checkWin() {
+  if (visited.flat().every(v => v)) {
+    gameOver = true;
+    resultText.textContent = `🎉 승리! ${moveCount}번 만에 모든 칸을 방문했습니다.`;
+    retryBtn.style.display = "inline-block";
+  }
+}
+
+function checkLose() {
+  for (let p of enemyPieces) {
+    const moves = getValidMoves(p, true); // 공격용
+    if (moves.some(m => m.x === player.x && m.y === player.y)) {
+      killerInfo = { from: { x: p.x, y: p.y }, to: { x: player.x, y: player.y }, type: p.type };
+      gameOver = true;
+      resultText.textContent = `💀 패배! ${symbols[p.type]}가 당신을 잡았습니다.`;
+      retryBtn.style.display = "inline-block";
+      return;
+    }
+  }
+}
+
+function moveEnemyPieces() {
+  const choices = [...enemyPieces];
+  for (let i = 0; i < 2 && choices.length > 0; i++) {
+    const idx = Math.floor(Math.random() * choices.length);
+    const piece = choices.splice(idx, 1)[0];
+    const moves = getValidMoves(piece, false).filter(m => !(m.x === player.x && m.y === player.y));
+    if (moves.length > 0) {
+      const move = moves[Math.floor(Math.random() * moves.length)];
+      piece.x = move.x;
+      piece.y = move.y;
+      // 폰 퀸 승격
+      if (piece.type === "pawn" && piece.y === 7) {
+        piece.type = "queen";
+      }
+    }
+  }
+}
+
+function getValidMoves(piece, forAttack = false) {
+  const moves = [];
+  const inside = (x, y) => x >= 0 && x < size && y >= 0 && y < size;
+  const occ = (x, y) => enemyPieces.some(p => p.x === x && p.y === y);
+  const add = (x, y) => { if (inside(x, y) && !occ(x, y)) moves.push({ x, y }); };
+
+  const lin = (dx, dy) => {
+    for (let i = 1; i < 8; i++) {
+      const nx = piece.x + dx * i;
+      const ny = piece.y + dy * i;
+      if (!inside(nx, ny) || occ(nx, ny)) break;
+      moves.push({ x: nx, y: ny });
+    }
+  };
+
+  switch (piece.type) {
+    case "rook": lin(1,0); lin(-1,0); lin(0,1); lin(0,-1); break;
+    case "bishop": lin(1,1); lin(-1,1); lin(1,-1); lin(-1,-1); break;
+    case "queen":
+      lin(1,0); lin(-1,0); lin(0,1); lin(0,-1);
+      lin(1,1); lin(-1,1); lin(1,-1); lin(-1,-1); break;
+    case "king":
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
+        if (dx !== 0 || dy !== 0) add(piece.x + dx, piece.y + dy);
+      break;
+    case "knight":
+      [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]].forEach(([dx,dy])=> add(piece.x+dx,piece.y+dy));
+      break;
+    case "pawn":
+      const dir = 1;
+      const px = piece.x;
+      const py = piece.y;
+      if (!forAttack) {
+        const ny = py + dir;
+        if (inside(px, ny) && !occ(px, ny)) moves.push({ x: px, y: ny });
+      } else {
+        [[-1,1],[1,1]].forEach(([dx, dy]) => {
+          const nx = px + dx;
+          const ny = py + dy;
+          if (inside(nx, ny)) moves.push({ x: nx, y: ny });
+        });
+      }
+      break;
+  }
+  return moves;
+}
+
+document.addEventListener("keydown", e => {
+  if (gameOver) return;
+  switch (e.key) {
+    case "ArrowUp": movePlayer(0, -1); break;
+    case "ArrowDown": movePlayer(0, 1); break;
+    case "ArrowLeft": movePlayer(-1, 0); break;
+    case "ArrowRight": movePlayer(1, 0); break;
+  }
+});
+
+function restartGame() {
+  const [x, y] = randomStart();
+  player = { x, y };
+  visited = Array.from({ length: size }, () => Array(size).fill(false));
+  visited[y][x] = true;
+  enemyPieces = JSON.parse(JSON.stringify(enemyPiecesTemplate));
+  gameOver = false;
+  killerInfo = null;
+  moveCount = 0;
+  moveCounter.textContent = "움직인 횟수: 0";
+  resultText.textContent = "";
+  retryBtn.style.display = "none";
+  createBoard();
+}
+
+restartGame();
+</script>
+</body>
+</html>
